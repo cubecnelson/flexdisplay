@@ -2,126 +2,133 @@
 
 類 [BetterDisplay](https://github.com/waydabber/BetterDisplay) 嘅 **macOS 選單列**螢幕工具（MVP v1.1）。
 
-Menu-bar utility for macOS 14+：列舉螢幕、切換解像度／刷新率、軟件（伽瑪）亮度、常用預設、軟熄屏、**實驗性虛擬螢幕**。
+Menu-bar utility for macOS 14+：列舉螢幕、切換解像度／刷新率、軟件（伽瑪）亮度、常用預設、軟熄屏、實驗性虛擬螢幕。
 
-> **唔係** BetterDisplay 替代品。DDC/CI、EDID、XDR、PIP 等見下方 Roadmap。
+**Bundle ID:** `com.cicadahk.flexdisplay`
+
+> **唔係** BetterDisplay 替代品。本 repo 喺 Linux 只能備齊原始碼／CI；**簽好名嘅 `.app`／`.dmg` 要喺 Mac 或 `macos-14` GitHub Actions runner 先產生。**
 
 ---
 
-## 點樣喺 Mac 打開／執行（How to run）
+## 點樣喺 Mac 打開／執行（unsigned Debug）
 
-### 方法 A — XcodeGen（建議）
+### 方法 A — XcodeGen
 
-1. 將成個 `FlexDisplay/` 資料夾複製去 Mac（或解壓 `FlexDisplay.tar.gz`）。
-2. 安裝 [Xcode 15+](https://developer.apple.com/xcode/) 同 XcodeGen：`brew install xcodegen`
-3. 喺專案根目錄執行：
-   ```bash
-   ./scripts/generate-xcodeproj.sh
-   open FlexDisplay.xcodeproj
-   ```
-4. **Signing & Capabilities** → 揀 **Team**；保持 **App Sandbox OFF**。
-5. Run（⌘R）→ 選單列 `display` 圖示。
+1. 複製／clone 本 repo 去 Mac。
+2. `brew install xcodegen` + Xcode 15+
+3. `./scripts/generate-xcodeproj.sh` → `open FlexDisplay.xcodeproj`
+4. Signing：揀 Team；**App Sandbox 保持 OFF**（display／gamma API）。
+5. Run（⌘R）。
 
 ### 方法 B — 冇 XcodeGen
 
-見 v1 README 步驟：新建 macOS App，拖入 `Sources/FlexDisplay/*.swift` 同 `Resources/`，自訂 Info.plist（`LSUIElement`）、entitlements（sandbox false）。
-
-### 方法 C — SwiftPM（僅編譯檢查）
-
-```bash
-swift build
-```
+新建 macOS App，拖入 `Sources/FlexDisplay/*.swift` 同 `Resources/`，Info.plist 用 `LSUIElement=true`，entitlements sandbox false。
 
 ---
 
-## 已實作（What works）
+## 簽好名嘅 Release（Developer ID · 店外派發）
+
+Menu bar utility 建議用 **Developer ID Application**（Gatekeeper／公網下載），**唔係** Mac App Store（MAS 強制 App Sandbox，會搞斷解像度／伽瑪／虛擬螢幕）。
+
+### 路徑對照
+
+| 路徑 | 證書 | Sandbox | 適用 |
+|------|------|---------|------|
+| **Developer ID**（本 repo 預設） | Developer ID Application + Developer ID Installer（可選） | **OFF** | 直接派 `.app`／`.dmg`，要 notarize |
+| **Mac App Store** | Apple Distribution | **ON**（強制） | 唔適合呢個 app 嘅核心 API；只作文件說明 |
+
+### 本機簽（Mac + Keychain）
+
+```bash
+export TEAM_ID=YOUR_TEAM_ID
+# 可選：export SIGN_IDENTITY="Developer ID Application: Your Name (TEAMID)"
+./scripts/build-signed-mac.sh
+
+# 連 notarize：
+export NOTARIZE=1
+export APPLE_API_KEY_ID=...
+export APPLE_API_ISSUER_ID=...
+export APPLE_API_KEY_P8_PATH=/path/to/AuthKey_XXXXXX.p8
+./scripts/build-signed-mac.sh
+```
+
+產出：`dist/FlexDisplay.app`、`.zip`、`.dmg`。
+
+### GitHub Actions（`macos-14`）
+
+Workflow：[`.github/workflows/macos-signed.yml`](.github/workflows/macos-signed.yml)
+
+- Trigger：`workflow_dispatch` 或 push tag `v*`
+- 步驟：XcodeGen → Archive（Developer ID）→ `notarytool` → staple → 上傳 `.zip` + `.dmg` artifact
+
+#### 要加嘅 repo Secrets
+
+| Secret | 說明 |
+|--------|------|
+| `APPLE_CERTIFICATE_P12_BASE64` | Developer ID Application 證書嘅 `.p12`，再 `base64`（唔好換行） |
+| `APPLE_CERTIFICATE_PASSWORD` | 匯出 `.p12` 時設嘅密碼 |
+| `APPLE_TEAM_ID` | 10 字元 Team ID（Membership 頁） |
+| `APPLE_API_KEY_ID` | App Store Connect API Key ID |
+| `APPLE_API_ISSUER_ID` | App Store Connect Issuer ID（UUID） |
+| `APPLE_API_KEY_P8` | API Key 嘅 `.p8` **全文**（包括 `BEGIN/END PRIVATE KEY`） |
+
+加完之後：Actions → **macOS Signed Build** → **Run workflow**。
+
+#### 點樣匯出 `.p12`（EN + 繁中）
+
+1. Apple Developer → **Certificates** → 建立 **Developer ID Application**（要有 Developer ID 權限；個人／公司帳先得）。
+2. 下載 `.cer`，喺 Mac 雙擊安裝入 **login** Keychain。
+3. Keychain Access → My Certificates → 展開證書 → 揀私鑰 → 右鍵 **Export…** → `.p12`，設密碼。
+4. Base64（Mac）：
+   ```bash
+   base64 -i DeveloperID.p12 | pbcopy
+   ```
+   貼去 GitHub Secret `APPLE_CERTIFICATE_P12_BASE64`。
+5. **App ID**：Developer → Identifiers → App IDs → 登記 `com.cicadahk.flexdisplay`（macOS）。Developer ID 派發唔一定要開 Capability，但預先登記 Bundle ID 方便管理。
+
+#### App Store Connect API Key
+
+1. App Store Connect → Users and Access → **Integrations** → App Store Connect API → **+** Key（Developer / App Manager）。
+2. 下載一次性 `.p8`；記低 Key ID + Issuer ID。
+3. 將 `.p8` 原文貼去 `APPLE_API_KEY_P8`（CI 用）；本機 notarize 用檔案路徑。
+
+**千萬唔好** commit `.p12`／`.p8`／密碼入 git。
+
+---
+
+## 已實作
 
 | 功能 | 說明 |
 |------|------|
-| 選單列圖示 | `MenuBarExtra` + `.window`，SF Symbol `display` |
-| 螢幕列表 | CoreGraphics + `NSScreen.localizedName`；內置／外接／主螢幕 |
-| 解像度／刷新率 | `CGConfigureDisplayWithDisplayMode` |
-| 軟件亮度 | `CGSetDisplayTransferByFormula`；可重設 |
-| 常用 | UserDefaults 預設；一鍵套用 |
-| 熄屏 | 全黑 borderless window，Esc 退出 |
-| **虛擬螢幕（實驗）** | UI＋持久化；`dlsym` 呼叫 `CGVirtualDisplay*`；失敗仍儲存設定；可斷開／刪除；可選 `CGConfigureDisplayMirrorOfDisplay` 鏡像 |
+| 選單列 | `MenuBarExtra` + `.window` |
+| 螢幕／解像度／HiDPI | CoreGraphics |
+| 軟件亮度 | gamma formula |
+| 常用／熄屏 | UserDefaults / black window |
+| 虛擬螢幕（實驗） | `dlsym` → `CGVirtualDisplay*` |
+| 簽發 CI | Developer ID + notarytool workflow |
 
----
+## 虛擬螢幕（實驗／SPI）
 
-## 虛擬螢幕（實驗／SPI-dependent）
-
-macOS **冇公開 API** 做到同 BetterDisplay 一樣嘅系統虛擬顯示器。本專案用：
-
-1. **`CGVirtualDisplay` / `CGVirtualDisplayDescriptor` / `CGVirtualDisplayMode`** — 經 `dlsym` 由 `CoreGraphics.framework` 動態解析（唔硬 link，Stock SDK 冇 header 都可以編譯）。
-2. 若符號唔存在或 `Create` 失敗 → 繁中提示：  
-   「此 macOS／SDK 未能建立系統虛擬螢幕；已儲存設定。請用有開發者 entitlements 嘅 build 或之後接 private API。」
-3. **鏡像**：兩邊都有 `CGDirectDisplayID` 時用 `CGConfigureDisplayMirrorOfDisplay`。
-4. **串流／PIP**：UI 標「稍後／需要螢幕錄製權限」，Toggle disabled。
-
-### 點測虛擬螢幕
-
-1. Run app → 「建立虛擬螢幕…」（側欄「虛擬」或底部／標題列 +）。
-2. 揀闊高／刷新率／HiDPI、配合實體螢幕；可開「連接後鏡像」。
-3. 睇「關於」或虛擬詳情入面 **SPI：符號可用／不可用**。
-4. 若 SPI 可用但仍連唔到：多數係 entitlement／系統政策；設定會留低，之後可再撳「連接」。
-5. 系統「顯示器」設定睇吓有冇多咗一個 display；「斷開」「刪除」應清走 session 物件。
-
-**Known limitations**
-
-- 唔等同 BetterDisplay 嘅 dummy／AirPlay／私有 framebuffer 方案。
-- `CGVirtualDisplayCreate` 可能要唔公開 entitlement；Personal Team Debug 好常見失敗。
-- 虛擬解像度 slider 係「改 config → 斷開再連」best-effort。
-- 重開 app 唔會自動 reconnect（要手動「連接」）。
-- 全螢幕串流未做（要 Screen Recording）。
-
----
+見前版說明：`CGVirtualDisplay` 經 dlsym；符號／entitlement 唔夠就只儲存設定。
 
 ## Roadmap
 
-- ~~虛擬螢幕／dummy display~~ → **實驗性（SPI）已接線；穩定系統虛擬桌面仍待 private API／entitlement**
-- 硬件 DDC/CI
-- EDID override、XDR nits、PIP／串流、layout protection、CEC
-- App Store 沙盒版
-- 自訂 app icon PNG
-
----
-
-## 重要限制／真實硬件要測
-
-1. `CGConfigureDisplayWithDisplayMode`
-2. `CGSetDisplayTransferByFormula` / `CGDisplayRestoreColorSyncSettings`
-3. `CGDisplayCreateUUIDFromDisplayID` bridging
-4. **`CGVirtualDisplay*` via dlsym** + mirror
-5. 熄屏 window level
-
----
+- 虛擬螢幕穩定化（private API／entitlement）
+- DDC/CI、EDID、XDR、PIP 串流
+- MAS 路徑（若果放棄非沙盒 API）
 
 ## 專案結構
 
 ```
 FlexDisplay/
-├── project.yml
-├── Package.swift
-├── README.md
+├── .github/workflows/macos-signed.yml
+├── project.yml                      # bundle id: com.cicadahk.flexdisplay
 ├── scripts/generate-xcodeproj.sh
+├── scripts/build-signed-mac.sh      # 本機簽
 ├── Resources/
-│   ├── Info.plist
-│   ├── FlexDisplay.entitlements
-│   └── Assets.xcassets/
 └── Sources/FlexDisplay/
-    ├── FlexDisplayApp.swift
-    ├── DisplayModels.swift
-    ├── DisplayService.swift
-    ├── FavoritesStore.swift
-    ├── BlackoutController.swift
-    ├── MenuBarView.swift
-    ├── DisplayDetailView.swift
-    ├── VirtualDisplayModels.swift
-    ├── VirtualDisplayService.swift    # dlsym CGVirtualDisplay*
-    ├── CreateVirtualScreenSheet.swift
-    └── VirtualScreenDetailView.swift
 ```
 
 ## License
 
-私人／本地使用。BetterDisplay 係 waydabber 獨立產品，本專案無附屬關係。
+私人／本地使用。BetterDisplay 無附屬關係。
