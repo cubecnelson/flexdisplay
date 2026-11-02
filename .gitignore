@@ -45,3 +45,11 @@ Carthage/Build/
 *.p12
 *.cer
 .env
+
+# Signed build output
+dist/
+build/
+*.xcarchive
+*.p12
+*.p8
+AuthKey_*.p8
